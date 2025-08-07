@@ -571,11 +571,48 @@ Specifically, we model:
 - \( X_t \mid Y_{0:t-1} \sim \mathcal{N}(\hat{\mu}_t^-, P_t^-) \): prior from the prediction step
 - \( Y_t \mid X_t = x_t \sim \mathcal{N}(H_t x_t, R_t) \): likelihood from observation model
 
-Then the posterior distribution is given by the conditional distribution of a joint Gaussian:
+The joint distribution \( (X_t, Y_t) \) of the two Gaussians is: 
 
 \[
-X_t \mid Y_{0:t} \sim \mathcal{N}\left(
-\mu_{t, X \mid Y}, \Sigma_{t, X \mid Y}
+\begin{bmatrix}
+X_t \\
+Y_t
+\end{bmatrix}
+\sim \mathcal{N}\left(
+\begin{bmatrix}
+\mathbb{E}[X_t] \\
+\mathbb{E}[Y_t]
+\end{bmatrix},
+\begin{bmatrix}
+\mathrm{Var} [X_t] & \mathrm{Cov} [X_t, Y_t] \\
+\mathrm{Cov} [Y_t, X_t] & \mathrm{Var} [Y_t]
+\end{bmatrix}
+\right)
+\]
+
+Where: 
+- \( \mathbb{E}[X] = \hat{\mu}_t^-\)
+- \( \mathbb{E}[Y] = H_t \mathbb{E} [X_t] = H_t \hat{\mu}_t^- \)
+- \( \mathrm{Var} [X_t] = P_t^- \)
+- \( \mathrm{Var} [Y_t] = R_t \)
+- \( \mathrm{Cov} [X_t, Y_t] = \mathbb{E} [(X_t - \hat{\mu}_t^-)(H_t X_t + V_t - H_t \hat{\mu}_t^-)^\top] = P_t^- H_t^\top \)
+- \( \mathrm{Cov} [Y_t, X_t] = \mathrm{Cov} [X_t, Y_t]^\top = H_t P_t^- \)
+
+So: 
+\[
+\begin{bmatrix}
+X_t \\
+Y_t
+\end{bmatrix}
+\sim \mathcal{N}\left(
+\begin{bmatrix}
+\hat{\mu}_t^- \\
+H_t \hat{\mu}_t^-
+\end{bmatrix},
+\begin{bmatrix}
+P_t^- & P_t^- H_t^\top \\
+H_t P_t^- & H_t P_t^- H_t^\top + R_t
+\end{bmatrix}
 \right)
 \]
 
@@ -588,6 +625,99 @@ X \mid Y = y \sim \mathcal{N}\left(
 \right)
 \]
 
-In this case:
-- \( \mathrm{E}[X] = \)
-- \( \mathrm{E}[Y] = \)
+Then the conditional distribution is:
+
+\[
+X_t \mid Y_{0:t} \sim \mathcal{N}(\hat{\mu}_t, P_t)
+\]
+
+Posterior Mean:
+
+\[
+\hat{\mu}_t = \hat{\mu}_t^- + P_t^- H_t^\top (H_t P_t^- H_t^\top + R_t)^{-1} (y_t - H_t \hat{\mu}_t^-)
+\]
+
+Posterior Covariance:
+
+\[
+P_t = P_t^- - P_t^- H_t^\top (H_t P_t^- H_t^\top + R_t)^{-1} H_t P_t^- 
+\]
+
+#### Kalman Gain
+
+Consider the measurement residual: \( y_t - H_t \hat{\mu}^- \)
+
+Define the Kalman Gain: 
+\[
+K_t = P_t^- H_t^\top (H_t P_t^- H_t^\top + R_t)^{-1} 
+\]
+
+Redefining the Posterior Mean using the Kalman Gain:  
+\[
+\hat{\mu}_t = \hat{\mu}_t^- + K_t (y_t - H_t \hat{\mu}_t^-)
+\]
+
+Redefining the Posterior Covariance using the Kalman Gain: 
+
+\[
+P_t = (I - K_t H_t) P_t^-
+\]
+
+- \( K_t \) balances trust between the prediction and new observation. 
+- If \( R_t \) is large (i.e. noisy observations), \( K_t \to 0 \): trust prediction.
+- If \( P_t^- \) is large (i.e. uncertain prediction), \( K_t \to 1 \): trust measurement.
+
+---
+
+### Initialisation
+
+To begin the recursive estimation, we assume a prior distribution over the initial hidden state:
+
+\[
+x_0 \sim \mathcal{N}(\hat{\mu}_0, P_0)
+\]
+
+This prior feeds into the first prediction step, so the quality of the initial estimate affects how quickly the filter converges.
+
+There are 3 main strategies for choosing the initial prior:
+
+
+- Informative Prior: For example, a robot which starts at the origin with high confidence:
+
+\[
+\hat{\mu}_0 = 0, \quad P_0 = \text{small}
+\]
+
+- Uninformative Prior: If we are highly uncertain, use a large covariance:
+
+\[
+P_0 = \alpha I, \quad \text{with } \alpha \gg 1
+\]
+
+- Steady-State Estimate: Initialise using the theoretical solution to the steady-state situation.
+
+---
+ 
+### Linear Minimum Mean Squared Error (LMMSE) Estimation Problem
+
+The LMMSE estimator is the linear function, \( \hat{x}_t\), that minimises the mean squared error:
+
+\[
+\hat{x}_t = \arg\min_{\hat{x}_t \in \mathcal{L}} \mathbb{E}\left[ \| x_t - \hat{x}_t \|^2 \right]
+\]
+
+Where \( \mathcal{L} \) is the set of all linear estimators of the form: \( \hat{x}_t = L y_{0:t} + b \) where \(L\) is a matrix and \(b\) is a constant. 
+
+If \( x_t \) and \( y_{0:t} \) are jointly Gaussian, then the LMMSE estimator is the conditional mean:
+
+\[
+\hat{x}_t = \mathbb{E}[ x_t \mid y_{0:t} ]
+\]
+
+By definiton of the Kalman filter as the conditional mean, it therefore is the LMMSE estimator: 
+
+\[
+\hat{x}_t = \hat{\mu}_t = \mathbb{E}[x_t \mid y_{0:t}]
+\]
+
+---
